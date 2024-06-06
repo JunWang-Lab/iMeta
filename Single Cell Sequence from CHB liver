@@ -1,0 +1,131 @@
+###GSE186343
+A4_G2 <- Read10X_h5("GSM5645899_1127-A4_filtered_feature_bc_matrix.h5")  
+CHB1 <- CreateSeuratObject(A4_G2, project = "CHB1")
+CHB1$stim <- "CHB"
+CHB1$group<-"CHB" 
+
+G3_G2 <- Read10X_h5("GSM5645901_G1115-G3_filtered_feature_bc_matrix.h5")  
+CHB2 <- CreateSeuratObject(G3_G2, project = "CHB2")
+CHB2$stim <- "CHB"
+CHB2$group<-"CHB" 
+
+H4_G2 <- Read10X_h5("GSM5645903_G1217-H4_filtered_feature_bc_matrix.h5")  
+CHB3 <- CreateSeuratObject(H4_G2, project = "CHB3")
+CHB3$stim <- "CHB"
+CHB3$group<-"CHB" 
+
+A5_G2 <- Read10X_h5("GSM5645905_G1219-A5_filtered_feature_bc_matrix.h5")  
+CHB4 <- CreateSeuratObject(A5_G2, project = "CHB4")
+CHB4$stim <- "CHB"
+CHB4$group<-"CHB" 
+
+G18_G2 <- Read10X_h5("GSM5645907_G20191218_filtered_feature_bc_matrix.h5")  
+CHB5 <- CreateSeuratObject(G18_G2, project = "CHB5")
+CHB5$stim <- "CHB"
+CHB5$group<-"CHB" 
+
+H1_G1 <- Read10X_h5("GSM5645910_H1_filtered_feature_bc_matrix.h5")  
+CHB6 <- CreateSeuratObject(H1_G1 , project = "CHB6")
+CHB6$stim <- "CHB"
+CHB6$group<-"CHB" 
+
+###GSE115469
+load("C:/Backup/Folder G/LIVER/single cell/HumanLiver.RData")
+HC1 <- HumanLiverSeurat
+HC1$stim <- "HC1"
+HC1$group<-"HC"
+celltype=read.csv("CellClusterType.csv")
+HC1@meta.data$celltype<-celltype$CellType
+HC1$nCount_RNA<-HC1$total_counts
+HC1$nFeature_RNA<-HC1$total_features
+
+###GSE124395
+setwd("C:/Backup/Folder G/LIVER/single cell/GSE124395")
+HC2 <- readRDS("GSE124395_Normalhumanliverdata.RData")
+HC2 <-HC2[,-c(1:5159,12293:12622)]
+HC2 <- CreateSeuratObject(HC2, project = "HC2")
+HC2$stim <- "HC2"
+HC2$group<-"HC"
+
+Merge_data <- merge(HC1, y=c(HC2,CHB1,CHB2,CHB3,CHB4,CHB5,CHB6), 
+                    add.cell.ids = c('HC1','HC2','CHB1','CHB2','CHB3','CHB4','CHB5','CHB6'), project = "merged")
+Merge_data$mitoRatio <- PercentageFeatureSet(Merge_data, pattern = "^MT")
+Merge_data$mitoRatio <- Merge_data@meta.data$mitoRatio / 100
+filtered_Merge_data <- subset(x = Merge_data, 
+                              subset= (nCount_RNA >= 2000) & 
+                                      (mitoRatio < 0.15))
+split.list <- SplitObject(filtered_Merge_data , split.by = "stim")
+for (i in names(split.list)) {
+  split.list[[i]] <- SCTransform(split.list[[i]], verbose = T)
+}
+liver.features <- SelectIntegrationFeatures(object.list = split.list, nfeatures = 2000)
+split.list <- PrepSCTIntegration(object.list = split.list, anchor.features = liver.features)
+reference_dataset <- which(names(split.list) == "HC1")
+liver.anchors <- FindIntegrationAnchors(object.list = split.list, normalization.method = "SCT", anchor.features = liver.features, reference = reference_dataset)
+liver.integrated <- IntegrateData(anchorset = liver.anchors, normalization.method = "SCT")
+DefaultAssay(liver.integrated) <- "integrated"
+all.genes <- rownames(liver.integrated)
+immune.combined <- ScaleData(liver.integrated, features = all.genes)
+immune.combined <- RunPCA(immune.combined, features = VariableFeatures(object = immune.combined))
+immune.combined <- RunUMAP(immune.combined, reduction = "pca", dims = 1:30)
+immune.combined <- FindNeighbors(immune.combined, reduction = "pca", dims = 1:30)
+immune.combined <- FindClusters(immune.combined, resolution = 0.5)
+liver.markers <- FindAllMarkers(immune.combined , only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+liver.markers %>% group_by(cluster) 
+write.csv(liver.markers,file="liver.markersfinal2.csv", quote=F,row.names = TRUE)
+
+cluster.average<-AverageExpression(immune.combined,)
+cluster.average$integrated
+write.csv(cluster.average,file="cluster.average.csv", quote=F,row.names = TRUE)
+###saveRDS(immune.combined, file = "liver.combined_final.rds")
+###immune.combined<-readRDS("liver.combined_final.rds")
+
+library(scater)
+library(SingleR)
+hESCs <- as.SingleCellExperiment(filtered_Merge_data)
+hESCs <- logNormCounts(hESCs)
+ref<- as.SingleCellExperiment(HC1)
+ref <- logNormCounts(ref)
+pred.grun <- SingleR(test=hESCs, ref=ref, labels=HC1$celltype)
+table(pred.grun$pruned.labels)
+immune.combined@meta.data$celltype<-pred.grun$pruned.labels
+DimPlot(immune.combined, group.by = c("celltype"),label = TRUE, size = 5,repel = T)
+DimPlot(immune.combined, group.by = c("celltype"),split.by = "group",label = FALSE, size = 5,repel = T)
+
+pred.grun2 <- SingleR(test=hESCs, ref=ref, labels=HC1$celltype,clusters =hESCs$orig.ident)
+table(pred.grun2$pruned.labels)
+cluster.average<-AverageExpression(immune.combined,)
+new.cluster.ids <- c("alpha-beta_T_Cells","alpha-beta_T_Cells","Hepatocytes1","NK-like_Cells",
+                     "Inflammatory_Macrophage","alpha-beta_T_Cells","Inflammatory_Macrophage","alpha-beta_T_Cells",
+                     "gamma-delta_T_Cells_1","Endotheilial_Cells","Plasma_Cells","Hepatocytes2","alpha-beta_T_Cells",
+                     "Endotheilial_Cells","Non-inflammatory_Macrophage","Cholangiocytes", "Mature_B_Cells",
+                     "gamma-delta_T_Cells_2","Endotheilial_Cells","Erythroid_cells","NA","Hepatic_Stellate_Cells",
+                     "NA","NA")
+Idents(immune.combined) <- immune.combined@meta.data$celltype
+names(new.cluster.ids) <- levels(immune.combined)
+immune.combined <- RenameIdents(immune.combined, new.cluster.ids)
+liver.markers <- FindAllMarkers(immune.combined , only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+liver.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)-> top10
+write.csv(liver.markers,file="liver.markersfinal.csv", quote=F,row.names = TRUE)
+celltype.average<-AverageExpression(immune.combined,)
+celltype.average<-AverageExpression(immune.combined,group.by = "celltype",)
+celltype.average$integrated
+write.csv(celltype.average$integrated,file="celltype.average.csv", quote=F,row.names = TRUE)
+write.csv(immune.combined$celltype,file="celltype.csv", quote=F,row.names = TRUE)
+write.csv(immune.combined$SCT$data,file="matrix.csv", quote=F,row.names = TRUE)
+
+A=liver.markers %>%
+  group_by(cluster) %>%
+  top_n(n = 10, wt = avg_log2FC) 
+write.csv(A,file="liver.markersfinal.csv", quote=F,row.names = TRUE)
+
+p1 <- DimPlot(immune.combined, reduction = "umap", group.by = "stim")
+p2 <- DimPlot(immune.combined, reduction = "umap", label = TRUE)
+p1+p2
+DimPlot(immune.combined, reduction = "umap", group.by = c("celltype"),split.by = "group",label = FALSE)
+
+
+
+
+
+
