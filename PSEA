@@ -1,0 +1,224 @@
+## Functions useful for PSEA (e.g. as implemented in psea.R)
+marker<-function(expr,id,sampleSubset=NULL,targetMean=1,...){
+	expr<-as.matrix(expr)
+	if (is.null(sampleSubset)) {sampleSubset<-1:(dim(expr)[2])}
+	mrkrs<-sapply(id,function(x) {
+		xind<-match(x,rownames(expr))
+		if (any(is.na(xind))) stop('Error: Unmatched marker') else
+		apply(targetMean*matrix(expr[xind,],nrow=length(x),ncol=ncol(expr))/apply(matrix(expr[xind,sampleSubset],nrow=length(x),ncol=ncol(expr[,sampleSubset])),1,function(x){mean(x,na.rm=TRUE)}),2,function(x){mean(x,na.rm=TRUE)})
+		})
+	apply(t(mrkrs),2,mean)
+}
+
+
+#stepwise ls using stepAIC
+swlm<-function(R,subset=NULL,upper,lower=formula(~1),direction='both',trace=FALSE,keep=NULL,msg=FALSE) {
+        if (!is.matrix(R)) stop('Error: R is not a matrix.')
+        if (is.null(subset)) subset<-1:ncol(R)
+        swft<-list()
+        for (i in 1:nrow(R)) {
+                if (msg) cat('reponse ',i,'\n')
+                ft1<-lm(R[i,]~1,subset=subset)
+                swft[[i]]<-stepAIC(ft1,scope=list(upper=upper,lower=lower),direction='both',trace=trace,keep=keep)
+        }
+        return(swft)
+}
+
+
+
+#Extracts slots from each object in a list
+#ls: a list, e.g. summary of a fit object of multiple responses, i.e. summary(lm)
+slt<-function(ls,slot,index=NULL) {
+	ind<-which(names(ls[[1]])==slot);
+	if (is.null(index)) sapply(ls,function(x){x[[ind]]})
+	else sapply(ls,function(x){x[[ind]][index] })
+}
+
+	
+
+#Takes a list of lm objects and returns a matrix with the fitted coefficients (each row contains the coefficients for a given lm object)
+coefmat<-function(lst,regressors) {
+	coefm<-matrix(NA,length(lst),length(regressors))
+	colnames(coefm)<-regressors
+	for (i in 1:length(lst)) {
+		coefm[i,names(lst[[i]]$coef)]<-lst[[i]]$coef
+	}
+	colnames(coefm)<-paste('coef',regressors,sep='.')
+	coefm
+}
+
+
+#Takes a list of lm objects and returns a matrix with the p-values associated with coefficients (each row contains the p-values for a given lm objects)
+#The coefficients are matched based on their name in names(lm$coef). P-values are extracted from summary(lm) and we assume an identical ordering of coefficients in lm$coef and summary(lm)$coef[,4].
+pvalmat<-function(lst,regressors) {
+	pvalm<-matrix(NA,length(lst),length(regressors))
+	colnames(pvalm)<-regressors
+	for (i in 1:length(lst)) {
+		coef<-summary(lst[[i]])$coef
+		pvalm[i,names(lst[[i]]$coef)]<-coef[,4]
+	}
+	colnames(pvalm)<-paste('pvalue',regressors,sep='.')
+	pvalm
+}	
+
+## reference signals
+hep1_set=c("CYP2E1","TF","ASS1","HP","APOB")
+hep2_set=c("CYP2A7","CYP3A4","HSD11B1","CYP2A")
+abT_set=c("CD3D","GZMK","CD2","TRAC","CD8A","NKG7","GZMB")
+TNK_set=c("NKG7","GZMB")
+gdT2_set=c("HMGB2","STMN1")
+iMac_set=c("S100A9","S100A8")
+nMac_set=c("VSIG4","CD163","CD5L")
+Bcell_set=c("LTB","MS4A1")
+Plasma_set=c("IGKC","MZB1")
+Chol_set=c("KRT7","EPCAM")
+Stel_set=c("COL3A1","COL1A1")
+
+id1<-intersect(rownames(data),hep1_set)
+id2<-intersect(rownames(data),hep2_set)
+id3<-intersect(rownames(data),TNK_set)
+id4<-intersect(rownames(data),gdT2_set)
+id5<-intersect(rownames(data),iMac_set)
+id6<-intersect(rownames(data),nMac_set)
+id7<-intersect(rownames(data),Bcell_set)
+id8<-intersect(rownames(data),Plasma_set)
+id9<-intersect(rownames(data),Chol_set)
+id10<-intersect(rownames(data),Stel_set)
+
+mrk1<-marker(data,id1)
+mrk2<-marker(data,id2)
+mrk3<-marker(data,id3)
+mrk4<-marker(data,id4)
+mrk5<-marker(data,id5)
+mrk6<-marker(data,id6)
+mrk7<-marker(data,id7)
+mrk8<-marker(data,id8)
+mrk9<-marker(data,id9)
+mrk10<-marker(data,id10)
+
+
+##PSEA
+trace<-TRUE
+upper=formula(~mrk1+mrk2+mrk3++mrk4+mrk5+mrk6+mrk7+mrk8+mrk9+mrk10)
+swftn<-swlm(dataPSEA,upper=upper)
+cat('Fitting done\n')
+
+sswftn<-lapply(swftn,summary)
+intercn<-slt(sswftn,'coefficients',1)
+adjr2n<-slt(sswftn,'adj.r.squared')
+termsn<-lapply(swftn,function(x){attr(x$terms,'term.labels')})
+termsnbn<-sapply(termsn,length)
+
+mrkrnms<-c('mrk1','mrk2','mrk3','mrk4','mrk5','mrk6','mrk7','mrk8','mrk9','mrk10')
+
+nbmrkrs<-length(mrkrnms)
+coefn<-coefmat(swftn,c('(Intercept)', mrkrnms))
+pvaln<-pvalmat(swftn,c('(Intercept)', mrkrnms))
+coefpvaln<-cbind(coefn,pvaln)[,as.vector(matrix(1:((nbmrkrs+1)*2),2,nbmrkrs+1,byrow=TRUE))]
+
+mnn<-apply(exprPSEA,1,mean)
+
+tbln<-data.frame(rownames(data),coefpvaln,adjr2=adjr2n)
+
+PSEAall=tbln
+write.csv(tbln,file="PSEAall.csv", quote=F,row.names = TRUE)
+
+##cellspecfic expression in different CHB clinical stages
+###hepatocyte1 as example:
+###construct a matrix of coef of all cell type makers (coef.mrk1, coef.mrk2, coef.mrk3, ...),names as PSEAmodel
+exa=read.csv("PSEAmodel.csv")
+exa<-as.data.frame(exa)
+rownames(exa)<-exa[,1]
+exa<-exa[,-1]
+
+listmerge=list(c(0,0))
+for (a in 1:nrow(exa)) {
+  m=0
+  for (i in 1:10) {
+    y <- exa[a,i]
+    if (y==1)	{
+      m=c(m,i)
+    }   
+  }
+  m=m[-1]
+  list=list(m)
+  
+  listmerge=c(listmerge,list) 
+}
+model_subset<-listmerge[-1]
+
+dataallm=dataPSEA[rownames(exa),]
+
+model_matrix<-as.matrix(cbind(mrk1,mrk2,mrk3,mrk4,mrk5,mrk6,mrk7,mrk8,mrk9,mrk10,mrk11))
+rownames(model_matrix)<-colnames(dataPSEA)
+
+
+###hepatocyte1
+bln1<-data.frame(colnames(dataallm)) 
+for (i in 1:488) {
+  y <- dataallm[i,]
+  fndlm <- as.matrix(model_matrix[,model_subset[[i]]])
+  ft<-lm(y~ fndlm)
+  
+  if (is.na(ft$coef[c("fndlmmrk1")]))	{
+    bln1=bln1
+  }
+  else {
+    rpc  <- residuals(ft) +  as.matrix(ft$model$fndlm[, c("mrk1")]) %*% ft$coef[c("fndlmmrk1")]
+    bln1<-data.frame(bln1,rpc) 
+    colnames(bln1)[ncol(bln1)] <- rownames(dataallmAIH)[i]
+  }
+}
+
+
+bln1=cbind(clinical3[colnames(dataallmAIH),]$Phase,bln1)
+Hep1CR<-as.data.frame(cbind(mrk1,bln1))
+
+Hep1CRIT<-Hep1CR[c(26:44),]
+Hep1CRAIH<-Hep1CR[c(12:25,45:82),]
+Hep1CRIC<-Hep1CR[c(1:11),]
+
+N <- 3
+M <- ncol(Hep1CR)
+mat <- matrix(0, ncol = N, nrow = M)
+for (i in 4:ncol(Hep1CR)) {
+  model1 <- stan_glm(Hep1CRAIH[,i] ~ mrk1, data=Hep1CRAIH)
+  posterior_sampleAIH <- as.data.frame(model1)
+  colnames(posterior_sampleAIH)<-c("Intercept","slope")
+  posterior_interval(model1, 0.75)
+  a=mean(posterior_sampleAIH[,2])
+  
+  model2 <- stan_glm(Hep1CRIT[,i] ~ mrk1, data=Hep1CRIT)
+  posterior_sampleIT <- as.data.frame(model2)
+  colnames(posterior_sampleIT)<-c("Intercept","slope")
+  posterior_interval(model2, 0.75)
+  b=mean(posterior_sampleIT[,2])
+  
+  model3 <- stan_glm(Hep1CRIC[,i] ~ mrk1, data=Hep1CRIC)
+  posterior_sampleIC <- as.data.frame(model3)
+  colnames(posterior_sampleIC)<-c("Intercept","slope")
+  posterior_interval(model3, 0.75)
+  c=mean(posterior_sampleIC[,2])
+  
+  
+  mat[i,1]=a
+  mat[i,2]=b
+  mat[i,3]=c
+  
+}
+
+
+dat <-
+  data.frame(mat[c(4:ncol(Hep1CR)),],
+             label=colnames(Hep1CR)[4:ncol(Hep1CR)]
+  )
+
+rownames(dat)<-dat[,4]
+hep1dat=dat
+
+write.csv(hep1dat,file="hep1dat.csv", quote=F,row.names = TRUE)
+
+
+
+
+
