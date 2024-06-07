@@ -1,0 +1,37 @@
+library(rstanarm)
+model1 <- stan_glm(logALT ~ im1[,4], data=im1)
+interval1<-as.data.frame(posterior_interval(model1, 0.95))
+interval1<-interval1[2,]
+for (i in 5:93) {
+   model1 <- stan_glm(logALT ~ im1[,i], data=im1)
+   interval=as.data.frame(posterior_interval(model1, 0.95))
+   interval1=rbind(interval1,interval[2,])
+}
+rownames(interval1)<-rownames(imdata3)
+intervalALT=cbind(interval1,rownames(imdata3))
+colnames(intervalALT)=c("lower","upper","sym")
+
+model1 <- stan_glm(logAST ~ im1[,4], data=im1)
+interval1<-as.data.frame(posterior_interval(model1, 0.95))
+interval1<-interval1[2,]
+for (i in 5:93) {
+   model1 <- stan_glm(logAST ~ im1[,i], data=im1)
+   interval=as.data.frame(posterior_interval(model1, 0.95))
+   interval1=rbind(interval1,interval[2,])
+}
+rownames(interval1)<-rownames(imdata3)
+intervalAST=cbind(interval1,rownames(imdata3))
+colnames(intervalAST)=c("lower","upper","sym")
+
+
+model1 <- stan_glm(logDNA ~ im2[,4], data=im2)
+interval1<-as.data.frame(posterior_interval(model1, 0.95))
+interval1<-interval1[2,]
+for (i in 5:93) {
+   model1 <- stan_glm(y1 ~ im2[,i], data=im2)
+   interval=as.data.frame(posterior_interval(model1, 0.95))
+   interval1=rbind(interval1,interval[2,])
+}
+rownames(interval1)<-rownames(imdata3)
+intervalDNA=cbind(interval1,rownames(imdata3))
+colnames(intervalDNA)=c("lower","upper","sym")
